@@ -91,7 +91,7 @@
     ],
 
     "background": {
-      "scripts": ["testpilot-metrics.js", "background.js"]
+      "scripts": ["background.js"]
     },
 
     "browser_action": {
@@ -111,7 +111,6 @@
     "watch": "npm-run-all --parallel watch:*",
     "copy:locales": "node ./bin/pontoon-to-webext",
     "copy:assets": "shx cp -r src/icons dist/ && svgo dist/icons --quiet && shx cp -r src/popup/*.html src/popup/FiraSans-Regular.* src/popup/snooze-bootstrap.js dist/popup/",
-    "copy:js": "shx cp node_modules/testpilot-metrics/testpilot-metrics.js dist/",
     "bundle:manifest": "node ./bin/generate-manifest",
     "bundle:js": "npm run lint:js && rollup -c --environment entry:background && rollup -c --environment entry:popup/snooze-content && rollup -c --environment entry:lib/confirm-bar",
     "bundle:css": "npm run lint:sass && shx mkdir -p dist/popup && node-sass src/popup/snooze.scss > dist/popup/snooze.css",
@@ -136,8 +135,6 @@
     "rc-calendar": "^7.5.1",
     "rc-time-picker": "^2.2.1",
     "react": "^15.4.1",
-    "react-dom": "^15.4.1",
-    "testpilot-metrics": "2.1.2",
-    "uuid": "^3.0.1"
+    "react-dom": "^15.4.1"
   }
 }

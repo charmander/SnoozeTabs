@@ -1,9 +1,9 @@
 import { expect } from 'chai';
 import sinon from 'sinon';
 
-import { KNOWN_PROPERTIES, KEY_METRICS_UUID, KEY_DONT_SHOW,
+import { KNOWN_PROPERTIES, KEY_DONT_SHOW,
          getAlarms, saveAlarms, removeAlarms,
-         getAlarmsAndProperties, getMetricsUUID,
+         getAlarmsAndProperties,
          getDontShow, setDontShow } from '../../src/lib/storage';
 
 describe('lib/storage', () => {
@@ -56,12 +56,10 @@ describe('lib/storage', () => {
       alarm3: 'expectme',
       alarm4: 'expectme'
     };
-    update[KEY_METRICS_UUID] = 'dontexpectme';
     saveAlarms(update).then(() => {
       expect(global.browser.storage.local.set.called).to.be.true;
       expect(mockStorage.alarm3).to.equal(update.alarm3);
       expect(mockStorage.alarm4).to.equal(update.alarm4);
-      expect(mockStorage[KEY_METRICS_UUID]).to.not.equal(update[KEY_METRICS_UUID]);
       done();
     }).catch(err => {
       expect(err).to.not.exist;
@@ -70,12 +68,11 @@ describe('lib/storage', () => {
   });
 
   it('supports removeAlarms() that filters out known properties', done => {
-    const toRemove = ['alarm1', 'alarm2', KEY_METRICS_UUID];
+    const toRemove = ['alarm1', 'alarm2'];
     removeAlarms(toRemove).then(() => {
       expect(global.browser.storage.local.remove.called).to.be.true;
       expect(mockStorage.alarm1).to.not.exist;
       expect(mockStorage.alarm2).to.not.exist;
-      expect(mockStorage[KEY_METRICS_UUID]).to.exist;
       done();
     }).catch(err => {
       expect(err).to.not.exist;
@@ -125,30 +122,6 @@ describe('lib/storage', () => {
     setDontShow(expectedValue).then(() => {
       expect(global.browser.storage.local.set.called).to.be.true;
       expect(mockStorage[KEY_DONT_SHOW]).to.equal(expectedValue);
-      done();
-    }).catch(err => {
-      expect(err).to.not.exist;
-      done();
-    });
-  });
-
-  it('supports getMetricsUUID() that auto-generates a UUID the first time', done => {
-    delete mockStorage[KEY_METRICS_UUID];
-    getMetricsUUID().then(resultUUID => {
-      expect(global.browser.storage.local.get.called).to.be.true;
-      expect(global.browser.storage.local.set.called).to.be.true;
-      expect(resultUUID).to.exist;
-      done();
-    }).catch(err => {
-      expect(err).to.not.exist;
-      done();
-    });
-  });
-
-  it('supports getMetricsUUID() that yields the existing UUID', done => {
-    const expectedUUID = mockStorage[KEY_METRICS_UUID] = '8675309';
-    getMetricsUUID().then(resultUUID => {
-      expect(resultUUID).to.equal(expectedUUID);
       done();
     }).catch(err => {
       expect(err).to.not.exist;
