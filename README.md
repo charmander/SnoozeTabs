@@ -44,6 +44,10 @@ An add-on to let you snooze your tabs for a while.
 * Add a “Developer Mode” with much shorter times, or an extra 3-second timer?
 * We’ll need something to convert [Pontoon][pontoon]-format l10n files into [WebExtension l10n][l10n] files…
 
+## Localization
+
+Snooze Tabs localization is managed via [Pontoon](https://pontoon.mozilla.org/projects/test-pilot-snoozetabs/), not direct pull requests to the repository. If you want to fix a typo, add a new language, or simply know more about localization, please get in touch with the [existing localization team](https://pontoon.mozilla.org/teams/) for your language, or Mozilla’s [l10n-drivers](https://wiki.mozilla.org/L10n:Mozilla_Team#Mozilla_Corporation) for guidance.
+
 
 ## Thanks
 
@@ -54,20 +58,22 @@ Many of our icons came from [the Noun Project][nouns]:
 * Weekend: "[Sunglasses][sunglasses]" By NAS, from the Noun Project.
 * Next Month: "[Calendar][calendar]" By artworkbean, from the Noun Project. (Modified)
 * Pick a Date: "[Calendar][calendar]" By artworkbean, from the Noun Project.
+* Undo: "[Undo][]" By H Alberto Gongora, from the Noun Project.
 
 
+[bell]: https://thenounproject.com/term/bell/242717/
+[calendar]: https://thenounproject.com/term/calendar/124931/
 [flow]: https://flowtype.org/
-[gulp]: http://gulpjs.com/
+[future]: https://thenounproject.com/term/future/101713/
 [grunt]: http://gruntjs.com/
+[gulp]: http://gulpjs.com/
 [l10n]: https://developer.mozilla.org/en-US/Add-ons/WebExtensions/Internationalization
+[nouns]: https://thenounproject.com/
 [npm]: https://docs.npmjs.com/misc/scripts
 [pontoon]: https://pontoon.mozilla.org/projects/
 [sass]: http://sass-lang.com/
 [spec]: https://mozilla.invisionapp.com/share/MV9F846SY#/screens
-[webext]: https://developer.mozilla.org/en-US/Add-ons/WebExtensions
-[nouns]: https://thenounproject.com/
-[bell]: https://thenounproject.com/term/bell/242717/
 [stopwatch]: https://thenounproject.com/term/stopwatch/190330/
-[future]: https://thenounproject.com/term/future/101713/
 [sunglasses]: https://thenounproject.com/nas.ztu/collection/travel/?oq=weekend&cidx=0&i=58827
-[calendar]: https://thenounproject.com/term/calendar/124931/
+[undo]: https://thenounproject.com/search/?q=undo&i=716798
+[webext]: https://developer.mozilla.org/en-US/Add-ons/WebExtensions

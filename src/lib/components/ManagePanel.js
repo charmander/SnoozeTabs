@@ -1,9 +1,14 @@
 import React from 'react';
+import ReactCSSTransitionGroup from 'react-addons-css-transition-group';
 
 import classnames from 'classnames';
 import { NEXT_OPEN } from '../times';
 import { getLocalizedDateTime } from '../time-formats';
 import DatePickerPanel from './DatePickerPanel';
+import { idForItem } from '../utils';
+
+// 5 second delay before auto-removing undo entries
+const CLEAR_UNDO_DELAY = 5000;
 
 export default class ManagePanel extends React.Component {
   constructor(props) {
@@ -11,15 +16,17 @@ export default class ManagePanel extends React.Component {
     this.state = {
       datepickerActive: false,
       editedItem: null,
-      dateChoice: props.moment()
+      dateChoice: props.moment(),
+      undoEntries: {}
     };
+    this.clearUndoTimer = null;
   }
 
   render() {
     const { id, entries, active, tabIsSnoozable, dontShow, updateDontShow, moment } = this.props;
-    const { datepickerActive } = this.state;
+    const { undoEntries, datepickerActive } = this.state;
 
-    const sortedEntries = [...entries];
+    const sortedEntries = Object.values({...entries, ...undoEntries});
     sortedEntries.sort((a, b) => {
       if (a.time === NEXT_OPEN) {
         if (b.time === NEXT_OPEN) {
@@ -35,25 +42,27 @@ export default class ManagePanel extends React.Component {
     });
 
     return (
-      <div>
+      <ReactCSSTransitionGroup component="div" transitionName="panel" transitionEnterTimeout={250} transitionLeaveTimeout={250}>
         <div id={id} className={classnames('panel', { active, obscured: datepickerActive, static: !tabIsSnoozable })}>
           <div className="header">{browser.i18n.getMessage('manageHeader')}</div>
-          { (sortedEntries.length > 0) ? (
-            <ul className={classnames('entries', { 'big': !tabIsSnoozable })}>
-              { sortedEntries.map((item, idx) => this.renderEntry(idx, item)) }
-            </ul>
-          ) : (
-            <div className="empty-entries">
-              <div className="icon">
-                <img src="../icons/bell_icon.svg" width="64" height="64" />
+          <div className="content">
+            { (sortedEntries.length > 0) ? (
+              <ReactCSSTransitionGroup component="ul" className="entries" transitionName="entry" transitionEnterTimeout={250} transitionLeaveTimeout={250}>
+                { sortedEntries.map(item => this.renderEntry(item)) }
+              </ReactCSSTransitionGroup>
+            ) : (
+              <div className="empty-entries">
+                <div className="icon">
+                  <img src="../icons/bell_icon.svg" width="64" height="64" />
+                </div>
+                <div className="message">{browser.i18n.getMessage('manageNoSnoozes')}</div>
               </div>
-              <div className="message">{browser.i18n.getMessage('manageNoSnoozes')}</div>
+            )}
+            <div className="manage-confirm">
+              <input type="checkbox" id="confirm-checkbox" checked={!dontShow}
+                onChange={event => updateDontShow(!event.target.checked)}/>
+              <label htmlFor="confirm-checkbox">{browser.i18n.getMessage('manageConfirmLabel')}</label>
             </div>
-          )}
-          <div className="manage-confirm">
-            <input type="checkbox" id="confirm-checkbox" checked={!dontShow}
-              onChange={event => updateDontShow(!event.target.checked)}/>
-            <label htmlFor="confirm-checkbox">{browser.i18n.getMessage('manageConfirmLabel')}</label>
           </div>
           <div className={classnames('footer', { 'hide': !tabIsSnoozable })}>
             <div className="back" onClick={() => this.handleBack()}><span>{
@@ -61,14 +70,14 @@ export default class ManagePanel extends React.Component {
             }</span></div>
           </div>
         </div>
-        <DatePickerPanel id="manageCalendar"
+        {datepickerActive && <DatePickerPanel id="manageCalendar" key="manageCalendar"
                          active={datepickerActive}
                          header={browser.i18n.getMessage('manageCalendarHeader')}
                          defaultValue={this.state.dateChoice}
                          onClose={ () => this.closeTimeSelect() }
                          onSelect={ value => this.confirmTimeSelect(value) }
-                         moment={ moment } />
-      </div>
+                         moment={ moment } />}
+      </ReactCSSTransitionGroup>
     );
   }
 
@@ -111,10 +120,11 @@ export default class ManagePanel extends React.Component {
     return true;
   }
 
-  renderEntry(idx, item) {
+  renderEntry(item) {
     const url = this.getDisplayUrl(item.url);
+    const key = idForItem(item);
     return (
-      <li className="entry" key={idx}>
+      <li className={classnames('entry', { undo: item.isUndo })} key={key}>
         <div className="icon">
           <img src={item.icon || '../icons/nightly.svg'} />
         </div>
@@ -126,9 +136,15 @@ export default class ManagePanel extends React.Component {
           <span>{this.getDate(item.time)}</span>
           <span>{this.getTime(item.time)}</span>
         </div>
-        <div className="delete" onClick={() => this.handleItemDelete(item)}>
-          <img src="../icons/trash.svg" width="16" height="16" />
-        </div>
+        {item.isUndo ? (
+          <div className="undo" onClick={() => this.handleItemUndo(item)}>
+            <img title={browser.i18n.getMessage('manageUndo')} src="../icons/undo.svg" width="16" height="16" />
+          </div>
+        ) : (
+          <div className="delete" onClick={() => this.handleItemDelete(item)}>
+            <img title={browser.i18n.getMessage('manageDelete')} src="../icons/trash.svg" width="16" height="16" />
+          </div>
+        )}
       </li>
     );
   }
@@ -153,8 +169,36 @@ export default class ManagePanel extends React.Component {
 
   handleItemDelete(item) {
     if (this.shouldIgnoreClicks()) { return; }
+
     const { cancelSnoozedTab } = this.props;
     cancelSnoozedTab(item);
+
+    const newUndoEntries = {...this.state.undoEntries};
+    newUndoEntries[idForItem(item)] = {...item, isUndo: true};
+    this.setState({ undoEntries: newUndoEntries });
+
+    this.startClearUndoTimer();
+  }
+
+  startClearUndoTimer() {
+    if (this.clearUndoTimer) {
+      clearTimeout(this.clearUndoTimer);
+    }
+    this.clearUndoTimer = setTimeout(() => {
+      this.setState({ undoEntries: {} });
+    }, CLEAR_UNDO_DELAY);
+  }
+
+  handleItemUndo(item) {
+    if (this.shouldIgnoreClicks()) { return; }
+
+    const newUndoEntries = {...this.state.undoEntries};
+    delete newUndoEntries[idForItem(item)];
+    this.setState({ undoEntries: newUndoEntries });
+
+    const { undeleteSnoozedTab } = this.props;
+    delete item.isUndo;
+    undeleteSnoozedTab(item);
   }
 
   handleEntryEdit(item) {
@@ -196,3 +240,18 @@ export default class ManagePanel extends React.Component {
   }
 
 }
+
+ManagePanel.propTypes = {
+  active: React.PropTypes.bool.isRequired,
+  cancelSnoozedTab: React.PropTypes.func.isRequired,
+  dontShow: React.PropTypes.bool.isRequired,
+  entries: React.PropTypes.object.isRequired,
+  id: React.PropTypes.string.isRequired,
+  moment: React.PropTypes.func.isRequired,
+  openSnoozedTab: React.PropTypes.func.isRequired,
+  switchPanel: React.PropTypes.func.isRequired,
+  tabIsSnoozable: React.PropTypes.bool.isRequired,
+  undeleteSnoozedTab: React.PropTypes.func.isRequired,
+  updateDontShow: React.PropTypes.func.isRequired,
+  updateSnoozedTab: React.PropTypes.func.isRequired,
+};

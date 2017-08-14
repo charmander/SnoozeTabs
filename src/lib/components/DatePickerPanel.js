@@ -5,7 +5,42 @@ import classnames from 'classnames';
 import 'moment/min/locales.min';
 import Calendar from 'rc-calendar';
 import TimePicker from 'rc-time-picker';
-import { use12hFormat } from '../time-formats.js';
+import { getLocalizedDateTime, use12hFormat } from '../time-formats.js';
+
+import en_US from 'rc-calendar/lib/locale/en_US';
+
+const uiLanguage = browser.i18n.getUILanguage();
+const momentLocale = uiLanguage.replace('_', '-');
+
+// Set up functional formatters using IntlDateTimeFormat API
+const makeFormatter = type => time => getLocalizedDateTime(time, type);
+const calendarLocale = {
+  yearFormat: makeFormatter('year'),
+  dateFormat: makeFormatter('date'),
+  dayFormat:  makeFormatter('day'),
+  dateTimeFormat: makeFormatter('dateTime'),
+  monthFormat: makeFormatter('month'),
+};
+
+// HACK: This is kind of ugly, but rc-calendar doesn't use an easily patchable
+// formatter for the month & year in the header of the calendar control [1][2]
+// [1] https://github.com/react-component/calendar/blob/354fb3cfb7501cba1dbc607271abceb33deb72c6/src/calendar/CalendarHeader.jsx#L89
+// [2] https://github.com/react-component/calendar/blob/354fb3cfb7501cba1dbc607271abceb33deb72c6/src/calendar/CalendarHeader.jsx#L117
+calendarLocale.monthBeforeYear = new Intl.DateTimeFormat(
+  [uiLanguage.replace('_', '-'), 'en-US'],
+  {month: 'numeric', year: 'numeric'}
+).formatToParts()[0].type === 'month';
+
+// Assemble a locale for rc-calendar from the extension's strings, with the
+// en_US locale from rc-calendar as a fallback
+const localeKeys = [
+  'today', 'now', 'backToToday', 'ok', 'clear', 'month', 'year', 'timeSelect',
+  'dateSelect', 'monthSelect', 'yearSelect', 'decadeSelect',
+  'monthBeforeYear', 'previousMonth', 'nextMonth', 'previousYear', 'nextYear',
+  'previousDecade', 'nextDecade', 'previousCentury', 'nextCentury'
+];
+localeKeys.forEach(key =>
+  calendarLocale[key] = browser.i18n.getMessage(`calendar_${key}`) || en_US[key]);
 
 // Arbitrary 0.5s interval for live validation of time selection
 const VALIDATION_INTERVAL = 500;
@@ -15,7 +50,7 @@ export default class DatePickerPanel extends React.Component {
     super(props);
     this.validationTimer = null;
     this.state = {
-      currentValue: props.defaultValue,
+      currentValue: props.defaultValue || props.moment(),
       confirmDisabled: false
     };
   }
@@ -38,24 +73,32 @@ export default class DatePickerPanel extends React.Component {
     const { currentValue, confirmDisabled } = this.state;
     const disabledTimeFns = this.disabledTime();
 
+    // Clone & patch the moment value to accept functions as formats
+    const currentValueLocalized = currentValue.clone().locale(momentLocale);
+    const origFormat = currentValueLocalized.format;
+    currentValueLocalized.format = format => (typeof format === 'function') ?
+      format(currentValueLocalized) : origFormat.call(currentValueLocalized, format);
+
     const timeFormat = use12hFormat ? 'h:mm a' : 'HH:mm';
 
     return (
       <div id={id} className={classnames('panel', { active })}>
         <div className="header">{header}</div>
-        <Calendar showOk={false}
+        <Calendar locale={calendarLocale}
+                  showOk={false}
                   showDateInput={false}
                   showToday={false}
-                  value={currentValue}
+                  value={currentValueLocalized}
                   disabledDate={this.disabledDate.bind(this)}
                   disabledTime={this.disabledTime.bind(this)}
                   onChange={value => this.handleChange(value)}
                   onSelect={value => this.handleChange(value)} />
         <div className="time-wrapper">
-          <TimePicker showSecond={false}
+          <TimePicker locale={calendarLocale}
+                      showSecond={false}
                       hideDisabledOptions={true}
                       allowEmpty={false}
-                      value={currentValue}
+                      value={currentValueLocalized}
                       format={timeFormat}
                       onChange={value => this.handleChange(value)}
                       {...disabledTimeFns} />
@@ -144,3 +187,13 @@ export default class DatePickerPanel extends React.Component {
     }
   }
 }
+
+DatePickerPanel.propTypes = {
+  active: React.PropTypes.bool.isRequired,
+  defaultValue: React.PropTypes.object.isRequired,
+  header: React.PropTypes.string.isRequired,
+  id: React.PropTypes.string.isRequired,
+  moment: React.PropTypes.func.isRequired,
+  onClose: React.PropTypes.func.isRequired,
+  onSelect: React.PropTypes.func.isRequired,
+};

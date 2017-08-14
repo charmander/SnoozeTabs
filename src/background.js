@@ -6,7 +6,7 @@
 
 'use strict';
 
-import { makeLogger } from './lib/utils';
+import { idForItem, makeLogger } from './lib/utils';
 const log = makeLogger('BE');
 
 import moment from 'moment';
@@ -19,26 +19,16 @@ const WAKE_ALARM_NAME = 'snooze-wake-alarm';
 
 let iconData;
 let closeData;
-
-function updateButtonForTab(tabId, changeInfo) {
-  if (changeInfo.status !== 'loading' || !changeInfo.url) {
-    return;
-  }
-  browser.tabs.get(tabId).then(tab => {
-    const url = changeInfo.url;
-    if (!tab.incognito && (url.startsWith('http:') || url.startsWith('https:') || url.startsWith('file:') ||
-        url.startsWith('ftp:') || url.startsWith('app:'))) {
-      browser.browserAction.setIcon({path: 'icons/bell_icon.svg', tabId: tabId});
-    } else {
-      browser.browserAction.setIcon({path: 'icons/disabled_bell_icon.svg', tabId: tabId});
-    }
-  }).catch(reason => {
-    log('update button get rejected', reason);
-  });
-}
+let wakeTimerPaused = false;
 
 function init() {
   log('init()');
+  browser.runtime.onInstalled.addListener((details) => {
+    if (details.reason === 'install') {
+      setupBookmarksFolder();
+    }
+  });
+  browser.windows.onCreated.addListener(handleWindowCreated);
   browser.alarms.onAlarm.addListener(handleWake);
   browser.notifications.onClicked.addListener(handleNotificationClick);
   browser.runtime.onMessage.addListener(handleMessage);
@@ -54,6 +44,14 @@ function init() {
     log('init tabs query rejected', reason);
   });
 
+  prefetchIcons();
+
+  scheduleNextOpenTabs()
+    .then(updateWakeAndBookmarks)
+    .catch(reason => log('init wake update failed', reason));
+}
+
+function prefetchIcons() {
   if (!iconData) {
     fetch(browser.extension.getURL('icons/color_bell_icon.png')).then(response => {
       return response.arrayBuffer();
@@ -73,8 +71,10 @@ function init() {
       log('init get closeData rejected', reason);
     });
   }
+}
 
-  getAlarms().then(items => {
+function scheduleNextOpenTabs() {
+  return getAlarms().then(items => {
     const due = Object.entries(items).filter(item => item[1].time === NEXT_OPEN);
     const updated = {};
     due.forEach(item => {
@@ -82,9 +82,24 @@ function init() {
       updated[item[0]] = item[1];
     });
     log('setting next open tabs to now', updated);
-    return saveAlarms(updated).then(updateWakeAndBookmarks);
+    return saveAlarms(updated);
+  }).catch(reason => log('scheduleNextOpenTabs failed', reason));
+}
+
+function updateButtonForTab(tabId, changeInfo) {
+  if (changeInfo.status !== 'loading' || !changeInfo.url) {
+    return;
+  }
+  browser.tabs.get(tabId).then(tab => {
+    const url = changeInfo.url;
+    if (!tab.incognito && (url.startsWith('http:') || url.startsWith('https:') ||
+        url.startsWith('ftp:') || url.startsWith('app:'))) {
+      browser.browserAction.setIcon({path: 'icons/bell_icon.svg', tabId: tabId});
+    } else {
+      browser.browserAction.setIcon({path: 'icons/disabled_bell_icon.svg', tabId: tabId});
+    }
   }).catch(reason => {
-    log('init storage get rejected', reason);
+    log('update button get rejected', reason);
   });
 }
 
@@ -92,8 +107,6 @@ function handleMessage({op, message}) {
   log('backend received', op, message);
   if (messageOps[op]) { messageOps[op](message); }
 }
-
-const idForItem = item => `${item.time}-${item.url}`;
 
 const messageOps = {
   schedule: message => {
@@ -137,47 +150,68 @@ const messageOps = {
   cancel: message => {
     return removeAlarms(idForItem(message)).then(updateWakeAndBookmarks);
   },
+  save: message => {
+    const toSave = {};
+    toSave[idForItem(message)] = message;
+    return saveAlarms(toSave)
+      .then(updateWakeAndBookmarks)
+      .catch(reason => log('save rejected', reason));
+  },
   update: message => {
-    return messageOps.cancel(message.old).then(() => messageOps.confirm(message.updated));
+    const newId = idForItem(message.updated);
+    const oldId = idForItem(message.old);
+    if (newId === oldId) { return; }
+
+    const toSave = {};
+    toSave[newId] = message.updated;
+    return saveAlarms(toSave)
+      .then(() => removeAlarms(idForItem(message.old)))
+      .then(updateWakeAndBookmarks)
+      .catch(reason => log('confirm rejected', reason));
   },
   setconfirm: message => {
     setDontShow(message.dontShow);
   },
 };
 
-function syncBookmarks(items) {
-  const title = browser.i18n.getMessage('bookmarkFolderTitle');
-  browser.bookmarks.search({title: title}).then(folders => {
+function setupBookmarksFolder() {
+  const title = browser.i18n.getMessage('uniqueBookmarkFolderTitle');
+  return browser.bookmarks.search({title: title}).then(folders => {
     return Promise.all(folders.map(folder => {
-      return browser.bookmarks.removeTree(folder.id);
+      return browser.bookmarks.update(folder.id, {
+        title: `${title} - ${getLocalizedDateTime(moment(), 'date_year')} ${getLocalizedDateTime(moment(), 'confirmation_time')}`
+      });
     }));
-  }).then(() => {
+  });
+}
+
+function syncBookmarks(items) {
+  const title = browser.i18n.getMessage('uniqueBookmarkFolderTitle');
+  browser.bookmarks.search({title: title}).then(folders => {
+    if (folders.length) {
+      return folders[0];
+    }
     return browser.bookmarks.create({title: title});
   }).then(snoozeTabsFolder => {
     log('Sync Folder!', snoozeTabsFolder, Object.values(items));
-    const sortedEntries = [...Object.values(items)];
-    sortedEntries.sort((a, b) => {
-      if (a.time === NEXT_OPEN) {
-        if (b.time === NEXT_OPEN) {
-          return -(a.title.localeCompare(b.title));
-        } else {
-          return 1;
-        }
-      } else if (b.time === NEXT_OPEN) {
-        return -1;
-      } else {
-        return b.time - a.time;
-      }
-    });
+    return browser.bookmarks.getChildren(snoozeTabsFolder.id).then((bookmarks) => {
+      const tabs = [...Object.values(items)];
+      const toCreate = tabs.filter((tab) => !bookmarks.find((bookmark) => tab.url === bookmark.url));
+      const toRemove = bookmarks.filter((bookmark) => !tabs.find((tab) => bookmark.url === tab.url));
 
-    return Promise.all(sortedEntries.map(item => {
-      return browser.bookmarks.create({
-        parentId: snoozeTabsFolder.id,
-        title: item.title,
-        url: item.url,
-        index: 0
-      });
-    }));
+      const operations = toCreate.map(item => {
+        log(`Creating ${item.url}.`);
+        return browser.bookmarks.create({
+          parentId: snoozeTabsFolder.id,
+          title: item.title,
+          url: item.url
+        });
+      }).concat(toRemove.map(item => {
+        log(`Removing ${item.url}.`);
+        return browser.bookmarks.remove(item.id);
+      }));
+      return Promise.all(operations);
+    });
   }).catch(reason => {
     log('syncBookmarks rejected', reason);
   });
@@ -188,6 +222,10 @@ function updateWakeAndBookmarks() {
     .then(() => getAlarms())
     .then(items => {
       syncBookmarks(items);
+
+      // Don't set a new wake timer if we're paused.
+      if (wakeTimerPaused) { return; }
+
       const times = Object.values(items).map(item => item.time).filter(time => time !== NEXT_OPEN);
       if (!times.length) { return; }
 
@@ -202,72 +240,107 @@ function updateWakeAndBookmarks() {
     });
 }
 
+function handleWindowCreated(window) {
+  if (wakeTimerPaused && !window.incognito) {
+    // Just opened a public window, so let's restart the wake timer
+    log('public window opened, resuming wake timer');
+    wakeTimerPaused = false;
+    handleWake();
+  }
+}
+
 function handleWake() {
   const now = Date.now();
   log('woke at', now);
-  return getAlarms().then(items => {
+
+  return Promise.all([
+    getAlarms(),
+    browser.windows.getAll({windowTypes: ['normal']}),
+    browser.windows.getCurrent()
+  ]).then(([items, windows, current]) => {
     const due = Object.entries(items).filter(entry => entry[1].time <= now);
     log('tabs due to wake', due.length);
-    return browser.windows.getAll({
-      windowTypes: ['normal']
-    }).then(windows => {
-      const windowIds = windows.map(window => window.id);
-      return Promise.all(due.map(([, item]) => {
-        log('creating', item);
-        const createProps = {
-          active: false,
-          url: item.url,
-          windowId: windowIds.includes(item.windowId) ? item.windowId : undefined
-        };
-        return browser.tabs.create(createProps).then(tab => {
-          browser.tabs.executeScript(tab.id, {
-            'code': `
-              function flip(newUrl) {
-                let link = document.createElement('link');
-                link.rel = 'shortcut icon';
-                link.href = newUrl;
-                document.getElementsByTagName('head')[0].appendChild(link);
-                return link;
-              }
 
-              function reset(link) {
-                link.remove();
-                let prev = document.querySelectorAll('link[rel="shortcut icon"]');
-                if (prev.length) {
-                  document.getElementsByTagName('head')[0].appendChild(prev.item(prev.length - 1));
-                }
-              }
+    const publicWindowIds = windows
+      .filter(window => !window.incognito)
+      .map(window => window.id).sort();
 
-              let link;
-              let flip_interval = window.setInterval(() => {
-                if (link) {
-                  reset(link);
-                  link = undefined;
-                } else {
-                  link = flip('${iconData}');
-                }
-              }, 500);
-              window.setTimeout(() => {
-                window.clearInterval(flip_interval);
-                if (link) {
-                  reset(link);
-                  link = undefined;
-                }
-              }, 10000)
-              `
-          });
-          return browser.notifications.create(`${item.windowId}:${tab.id}`, {
-            'type': 'basic',
-            'iconUrl': 'chrome://branding/content/about-logo@2x.png',
-            'title': item.title,
-            'message': item.url
-          });
+    // If there are no public windows, pause the wake timer and abort
+    if (publicWindowIds.length === 0) {
+      log('no public windows, pausing wake timer');
+      wakeTimerPaused = true;
+      return;
+    }
+
+    const currentWindow = current.incognito ? publicWindowIds[0] : current.id;
+
+    const toRemove = [];
+
+    return Promise.all(due.map(([id, item]) => {
+      log('creating', item);
+      return browser.tabs.create({
+        active: false,
+        url: item.url,
+        windowId: publicWindowIds.includes(item.windowId) ? item.windowId : currentWindow
+      }).then(tab => {
+        flashFavicon(tab);
+        return browser.notifications.create(`${item.windowId}:${tab.id}`, {
+          'type': 'basic',
+          'iconUrl': 'chrome://branding/content/about-logo@2x.png',
+          'title': item.title,
+          'message': item.url
         });
-      })).then(() => {
-        removeAlarms(due.map(entry => entry[0]));
+      }).then(() => {
+        // Wake was successful, so queue for removal.
+        toRemove.push(id);
+      }).catch(reason => {
+        // Wake failed, so this entry will not be removed.
+        log('handleWake create rejected', item.url, reason);
       });
+    })).then(() => {
+      // Finally, remove alarms for successfully woken tabs.
+      removeAlarms(toRemove);
     });
   }).then(updateWakeAndBookmarks);
+}
+
+function flashFavicon(tab) {
+  browser.tabs.executeScript(tab.id, {
+    'code': `
+      function flip(newUrl) {
+        let link = document.createElement('link');
+        link.rel = 'shortcut icon';
+        link.href = newUrl;
+        document.getElementsByTagName('head')[0].appendChild(link);
+        return link;
+      }
+
+      function reset(link) {
+        link.remove();
+        let prev = document.querySelectorAll('link[rel="shortcut icon"]');
+        if (prev.length) {
+          document.getElementsByTagName('head')[0].appendChild(prev.item(prev.length - 1));
+        }
+      }
+
+      let link;
+      let flip_interval = window.setInterval(() => {
+        if (link) {
+          reset(link);
+          link = undefined;
+        } else {
+          link = flip('${iconData}');
+        }
+      }, 500);
+      window.setTimeout(() => {
+        window.clearInterval(flip_interval);
+        if (link) {
+          reset(link);
+          link = undefined;
+        }
+      }, 10000)
+      `
+  });
 }
 
 function handleNotificationClick(notificationId) {
@@ -299,8 +372,10 @@ if (browser.contextMenus.ContextType.TAB) {
   }
 
   browser.contextMenus.onClicked.addListener(function(info, tab) {
-    if (tab.incognito) {
-      return; // Canʼt snooze private tabs
+    if (tab.incognito ||
+        !tab.url.startsWith('http:') && !tab.url.startsWith('https:') &&
+        !tab.url.startsWith('ftp:') && !tab.url.startsWith('app:')) {
+      return; // Canʼt snooze private or about: or file: tabs
     }
     const title = browser.i18n.getMessage('notificationTitle');
     const [time, ] = timeForId(moment(), info.menuItemId);

@@ -45,6 +45,10 @@ function scheduleSnoozedTab(time, timeType) {
   return;
 }
 
+function undeleteSnoozedTab(item) {
+  browser.runtime.sendMessage({ op: 'save', message: item });
+}
+
 function openSnoozedTab(item) {
   browser.tabs.create({
     active: true,
@@ -83,7 +87,7 @@ function queryTabIsSnoozable() {
     if (tabs.length) {
       const url = tabs[0].url;
       if (tabs[0].incognito ||
-          !url.startsWith('http:') && !url.startsWith('https:') && !url.startsWith('file:') &&
+          !url.startsWith('http:') && !url.startsWith('https:') &&
           !url.startsWith('ftp:') && !url.startsWith('app:')) {
         tabIsSnoozable = false;
       }
@@ -94,18 +98,22 @@ function queryTabIsSnoozable() {
 
 function init() {
   log('init');
+
   ReactDOM.render(
     <SnoozePopup {...{
       queryTabIsSnoozable,
       getAlarmsAndProperties,
       scheduleSnoozedTab,
+      undeleteSnoozedTab,
       openSnoozedTab,
       cancelSnoozedTab,
       updateSnoozedTab,
       updateDontShow,
       moment
     }} />,
-    document.getElementById('app'));
+    document.getElementById('app')
+  );
+
   browser.runtime.sendMessage({ op: 'panelOpened' });
 }
 
