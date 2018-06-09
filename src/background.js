@@ -16,9 +16,11 @@ import { NEXT_OPEN, PICK_TIME, times, timeForId } from './lib/times';
 import { getAlarms, saveAlarms, removeAlarms,
          getDontShow, setDontShow } from './lib/storage';
 const WAKE_ALARM_NAME = 'snooze-wake-alarm';
+const PERIODIC_ALARM_NAME = 'snooze-periodic-alarm';
 
 let iconData;
 let closeData;
+let confirmIconData;
 let wakeTimerPaused = false;
 
 function init() {
@@ -48,6 +50,7 @@ function init() {
 
   scheduleNextOpenTabs()
     .then(updateWakeAndBookmarks)
+    .then(startPeriodicAlarm)
     .catch(reason => log('init wake update failed', reason));
 }
 
@@ -59,6 +62,16 @@ function prefetchIcons() {
       iconData = 'data:image/png;base64,' + btoa(String.fromCharCode(...new Uint8Array(response)));
     }).catch(reason => {
       log('init get iconData rejected', reason);
+    });
+  }
+
+  if (!confirmIconData) {
+    fetch(browser.extension.getURL('icons/confirm_bell_icon.svg')).then(response => {
+      return response.arrayBuffer();
+    }).then(function(response) {
+      confirmIconData = 'data:image/svg+xml;base64,' + btoa(String.fromCharCode(...new Uint8Array(response)));
+    }).catch(reason => {
+      log('init get confirmIconData rejected', reason);
     });
   }
 
@@ -116,7 +129,7 @@ const messageOps = {
       }
 
       browser.tabs.executeScript(message.tabId, {file: './lib/confirm-bar.js'}).then(() => {
-        return chrome.tabs.sendMessage(message.tabId, {message, iconData, closeData});
+        return chrome.tabs.sendMessage(message.tabId, {message, confirmIconData, closeData});
       }).catch(reason => {
         log('schedule inject rejected', reason);
         return messageOps.confirm(message);
@@ -218,7 +231,7 @@ function syncBookmarks(items) {
 }
 
 function updateWakeAndBookmarks() {
-  return browser.alarms.clearAll()
+  return browser.alarms.clear(WAKE_ALARM_NAME)
     .then(() => getAlarms())
     .then(items => {
       syncBookmarks(items);
@@ -240,6 +253,11 @@ function updateWakeAndBookmarks() {
     });
 }
 
+function startPeriodicAlarm() {
+  log('starting periodic alarm');
+  return browser.alarms.create(PERIODIC_ALARM_NAME, { periodInMinutes: 1 });
+}
+
 function handleWindowCreated(window) {
   if (wakeTimerPaused && !window.incognito) {
     // Just opened a public window, so let's restart the wake timer
@@ -249,9 +267,9 @@ function handleWindowCreated(window) {
   }
 }
 
-function handleWake() {
+function handleWake(alarm) {
   const now = Date.now();
-  log('woke at', now);
+  log('woke at', now, 'with alarm', alarm ? alarm.name : 'none');
 
   return Promise.all([
     getAlarms(),
@@ -387,7 +405,8 @@ if (browser.contextMenus.ContextType.TAB) {
         'title': tab.title || title,
         'url': tab.url,
         'tabId': tab.id,
-        'windowId': tab.windowId
+        'windowId': tab.windowId,
+        'icon': tab.favIconUrl
       }
     });
   });

@@ -21,7 +21,12 @@ function sendShowUpdate(showCheckbox) {
   }
 }
 
-chrome.runtime.onMessage.addListener(function({message, iconData, closeData}) {
+function removeConfirmBar() {
+  const el1 = document.getElementById('snoozetabs-confirm-bar');
+  if (el1) { el1.remove(); }
+}
+
+chrome.runtime.onMessage.addListener(function({message, confirmIconData, closeData}) {
   const atTime = confirmationTime(message.time, message.timeType);
   const confirmationId = 'snoozetabs-confirmation-bar';
   const okId = 'snoozetabs-ok';
@@ -35,120 +40,139 @@ chrome.runtime.onMessage.addListener(function({message, iconData, closeData}) {
   const dontShowLabel = browser.i18n.getMessage('confirmDontShowLabel');
   const closeAltText = browser.i18n.getMessage('confirmCloseAltText');
 
-  let confirmationBar = document.getElementById(confirmationId);
-  if (!confirmationBar) {
-    confirmationBar = document.createElement('div');
-    document.body.appendChild(confirmationBar);
-  }
-  confirmationBar.outerHTML = `<div id="${confirmationId}" dir="${langDir}">
-    <style scoped>
-      * {
-        margin: 8px 0 8px 8px;
-      }
-      #${confirmationId} {
-        -moz-user-select: none;
-        align-items: center;
-        background-color: #eee;
-        box-shadow: 0 1px 0 0 rgba(0,0,0,0.35);
-        color: #6a6a6a;
-        display: flex;
-        flex-direction: row;
-        font-family: Lucida Grande, Tahoma, sans-serif;
-        font-size: 14px;
-        text-shadow: none;
-        min-height: 40px;
-        margin: 0;
-        position: fixed;
-        top: -45px;
-        transition: top 300ms ease-in-out;
-        width: 100%;
-        z-index: ${Number.MAX_SAFE_INTEGER};
-      }
-      #${confirmationId}.shown {
-        top: 0;
-      }
-      img {
-        height: 24px;
-        width: 24px;
-      }
-      button {
-        padding: 0;
-        background-color: #fbfbfb;
-        border: 1px solid #b1b1b1;
-        font-family: Lucida Grande, Tahoma, sans-serif;
-        font-size: 12px;
-        height: 24px;
-        width: 6em;
-      }
-      button:hover {
-        background-color: #ebebeb;
-      }
-      button:active {
-        background-color: #d4d4d4;
-      }
-      button.ok {
-        border: 1px solid #258ad6;
-        background-color: #0ba0f9;
-        color: #fff;
-      }
-      button.ok:hover {
-        background-color: #0670cc;
-      }
-      button.ok:active {
-        background-color: #005bab;
-      }
-      input, label {
-        color: #5d5d5d;
-        font-size: 10px;
-      }
-      label {
-        margin-left: 3px;
-      }
-      .spacer {
-        flex: 1;
-      }
-      #${closeId} {
-        cursor: pointer;
-        height: 10px;
-        margin-right: 16px;
-        width: 10px;
-      }
-    </style>
-    <img src="${iconData}" alt="${iconAltText}">
-    <span>${timeTitle}</span>
-    <button class="ok" id="${okId}">${okTitle}</button>
-    <button id="${cancelId}">${cancelTitle}</button>
-    <div class="spacer"></div>
-    <input type="checkbox" id="${showId}"/><label for="${showId}">${dontShowLabel}</label>
-    <img id="${closeId}" src="${closeData}" alt="${closeAltText}">
-  </div>`;
+  removeConfirmBar();
 
-  confirmationBar = document.getElementById(confirmationId);
-  const showCheckbox = document.getElementById(showId);
+  const iframe = document.createElement('iframe');
+  iframe.style.cssText = 'height: 55px; width: 100%; border: 0;';
+  iframe.id = 'snoozetabs-confirm-bar-iframe';
 
-  window.setTimeout(() => {
-    confirmationBar.classList.toggle('shown');
-  }, 500);
+  const frameDiv = document.createElement('div');
+  frameDiv.id = 'snoozetabs-confirm-bar';
+  frameDiv.style.cssText = 'height: 55px; width: 100%; top: 0; left: 0; padding: 0; position: fixed; z-index: 2147483647; visibility: visible;';
+  frameDiv.appendChild(iframe);
+  document.body.appendChild(frameDiv);
 
-  const okButton = document.getElementById(okId);
-  okButton.addEventListener('click', () => {
-    browser.runtime.sendMessage({
-      'op': 'confirm',
-      'message': message
+  iframe.onload = () => {
+    const iframeDocument = iframe.contentDocument;
+    let confirmationBar = iframeDocument.createElement('div');
+    confirmationBar.id = 'snoozetabs-confirmation-bar';
+    iframeDocument.body.appendChild(confirmationBar);
+
+    confirmationBar.outerHTML = `<div id="${confirmationId}" dir="${langDir}">
+      <style>
+        #${confirmationId} * {
+          margin: 8px 0 8px 8px;
+        }
+        #${confirmationId} {
+          -moz-user-select: none;
+          align-items: center;
+          background-color: #eee;
+          box-shadow: 0 0 4px rgba(0,0,0,0.35);
+          color: #0c0c0d;
+          display: flex;
+          flex-direction: row;
+          font: message-box;
+          font-family: Lucida Grande, Tahoma, sans-serif;
+          font-size: 13px;
+          text-shadow: none;
+          min-height: 40px;
+          margin: 0;
+          position: fixed;
+          left: 0px;
+          top: -45px;
+          transition: top 150ms ease-out;
+          width: 100%;
+          z-index: ${Number.MAX_SAFE_INTEGER};
+        }
+        #${confirmationId}.shown {
+          top: 0;
+        }
+        #${confirmationId} img {
+          height: 24px;
+          width: 24px;
+        }
+        #${confirmationId} button {
+          border: none;
+          padding: 0;
+          cursor: pointer;
+          background-color: rgba(12,12,13,0.1);
+          font-family: Lucida Grande, Tahoma, sans-serif;
+          font-size: 13px;
+          height: 32px;
+          width: 6em;
+        }
+        #${confirmationId} button:hover,
+        #${confirmationId} button:focus {
+          background-color: rgba(12,12,13,0.2);
+        }
+        #${confirmationId} button:active {
+          background-color: rgba(12,12,13,0.3);
+        }
+        #${confirmationId} button.ok {
+          background-color: #0060df;
+          color: #fff;
+        }
+        #${confirmationId} button.ok:hover,
+        #${confirmationId} button.ok:focus {
+          background-color: #003eaa;
+        }
+        #${confirmationId} button.ok:active {
+          background-color: #002275;
+        }
+        #${confirmationId} input, #${confirmationId} label {
+          font-size: 11px;
+        }
+        #${confirmationId} label {
+          margin-left: 3px;
+        }
+        #${confirmationId} .spacer {
+          flex: 1;
+        }
+        #${confirmationId} #${closeId} {
+          cursor: pointer;
+          height: 16px;
+          margin-right: 16px;
+          width: 16px;
+        }
+
+      </style>
+      <img src="${confirmIconData}" alt="${iconAltText}">
+      <span>${timeTitle}</span>
+      <button class="ok" id="${okId}">${okTitle}</button>
+      <button id="${cancelId}">${cancelTitle}</button>
+      <div class="spacer"></div>
+      <input type="checkbox" id="${showId}"/><label for="${showId}">${dontShowLabel}</label>
+      <img id="${closeId}" src="${closeData}" alt="${closeAltText}">
+    </div>`;
+
+    confirmationBar = iframeDocument.getElementById(confirmationId);
+    const showCheckbox = iframeDocument.getElementById(showId);
+
+    window.setTimeout(() => {
+      confirmationBar.classList.add('shown');
+    }, 100);
+
+    const okButton = iframeDocument.getElementById(okId);
+    okButton.addEventListener('click', () => {
+      browser.runtime.sendMessage({
+        'op': 'confirm',
+        'message': message
+      });
+      sendShowUpdate(showCheckbox);
     });
-    sendShowUpdate(showCheckbox);
-  });
 
-  const cancelButton = document.getElementById(cancelId);
-  cancelButton.addEventListener('click', () => {
-    confirmationBar.classList.toggle('shown');
-    sendShowUpdate(showCheckbox);
-  });
+    const hideBar = () => {
+      confirmationBar.classList.remove('shown');
+      window.setTimeout(removeConfirmBar, 300);
+      sendShowUpdate(showCheckbox);
+    };
 
-  const closeButton = document.getElementById(closeId);
-  closeButton.addEventListener('click', () => {
-    confirmationBar.classList.toggle('shown');
-    sendShowUpdate(showCheckbox);
-  });
+    const cancelButton = iframeDocument.getElementById(cancelId);
+    cancelButton.addEventListener('click', hideBar);
+
+    const closeButton = iframeDocument.getElementById(closeId);
+    closeButton.addEventListener('click', hideBar);
+
+  };
 
 });
